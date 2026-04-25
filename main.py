@@ -2,6 +2,7 @@ import requests
 import time
 import os
 import smtplib
+import json
 from email.mime.text import MIMEText
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -13,7 +14,19 @@ EMAIL_USER = os.environ["EMAIL_USER"]
 EMAIL_PASS = os.environ["EMAIL_PASS"]
 EMAIL_TO = os.environ["EMAIL_TO"]
 
-last_video_id = None
+STATE_FILE = "state.json"
+
+
+def load_last_video_id():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            return json.load(f).get("last_video_id")
+    return None
+
+
+def save_last_video_id(video_id):
+    with open(STATE_FILE, "w") as f:
+        json.dump({"last_video_id": video_id}, f)
 
 
 def get_latest_video():
@@ -31,9 +44,8 @@ def get_latest_video():
         return None
     video = items[0]
     video_id = video["id"].get("videoId")
-    snippet = video["snippet"]
-    title = snippet["title"]
-    description = snippet["description"]
+    title = video["snippet"]["title"]
+    description = video["snippet"]["description"]
     return video_id, title, description
 
 
@@ -80,20 +92,22 @@ def contains_keyword(text):
     return False
 
 
-while True:
-    result = get_latest_video()
-    if result:
-        video_id, title, description = result
-        if video_id != last_video_id:
-            last_video_id = video_id
-            combined_text = title + " " + description
-            if contains_keyword(combined_text):
-                print("keyword match found:", title)
-                matches = get_keyword_timestamps(video_id)
-                if matches:
-                    send_email(video_id, title, matches)
-                else:
-                    print("No transcript matches found")
+last_video_id = load_last_video_id()
+
+result = get_latest_video()
+if result:
+    video_id, title, description = result
+    if video_id != last_video_id:
+        save_last_video_id(video_id)
+        combined_text = title + " " + description
+        if contains_keyword(combined_text):
+            print("Keyword match found:", title)
+            matches = get_keyword_timestamps(video_id)
+            if matches:
+                send_email(video_id, title, matches)
             else:
-                print("new video (no keyword):", title)
-    time.sleep(10)
+                print("No transcript matches found")
+        else:
+            print("New video (no keyword):", title)
+    else:
+        print("No new video")
